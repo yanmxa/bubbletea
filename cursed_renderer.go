@@ -655,11 +655,6 @@ func (s *cursedRenderer) skipReflowedRows(width int) {
 	if env.Getenv("TMUX") != "" || env.Getenv("STY") != "" {
 		return
 	}
-	_, y := s.scr.Position()
-	if y <= 0 {
-		return
-	}
-
 	// Only the rows above the cursor matter: the erase runs from there to the
 	// bottom of the screen, so whatever the rows below it rewrapped into is
 	// cleared either way.
@@ -669,18 +664,24 @@ func (s *cursedRenderer) skipReflowedRows(width int) {
 		// are not on screen to be rewrapped.
 		rows = rows[len(rows)-s.height:]
 	}
+	_, y := s.scr.Position()
 	var reflowed int
 	for i := 0; i < y && i < len(rows); i++ {
-		// A row filling the width exactly still occupies a single terminal row,
-		// so the last column is not what pushes it onto another one.
-		if rowWidth := ansi.StringWidth(rows[i]); rowWidth > width {
-			reflowed += (rowWidth - 1) / width
-		}
+		// Wrapped rather than divided by the width: a double-width grapheme
+		// that will not fit in the last column moves to the next row whole and
+		// leaves that column unused, so dividing undercounts every row a
+		// terminal breaks that way — which is most of them once the text is
+		// CJK and the width is odd.
+		reflowed += strings.Count(ansi.Hardwrap(rows[i], width, true), "\n")
 	}
 	if reflowed > 0 {
-		// Written straight out rather than folded into the renderer's cursor
-		// position: the position is clamped to the frame height, which is
-		// exactly the bound this movement has to cross.
+		// Written straight out rather than through the renderer's own cursor
+		// movement, which clamps to the frame height — exactly the bound this
+		// has to cross. The renderer's idea of where the cursor is stays
+		// behind by these rows on purpose: inline mode moves relatively (see
+		// SetRelativeCursor in reset), so the move it makes next to reach the
+		// top of the frame stacks on this one instead of replacing it. A
+		// renderer that ever positioned absolutely here would land short again.
 		_, _ = s.scr.WriteString(ansi.CursorUp(reflowed))
 	}
 }
