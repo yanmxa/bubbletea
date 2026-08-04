@@ -624,10 +624,65 @@ func (s *cursedRenderer) resize(w, h int) {
 	// width hasn't changed in inline mode. On the other hand, when using
 	// alt screen mode, we always want to redraw because some terminals
 	// would scroll the screen and our content would be lost.
+	s.skipReflowedRows(w)
 	s.scr.Erase()
 	s.width, s.height = w, h
 	s.scr.Resize(s.width, s.height)
 	s.mu.Unlock()
+}
+
+// skipReflowedRows moves the cursor past the rows a narrowing terminal added to
+// the frame we already drew, so the forced redraw erases from the frame's real
+// top row.
+//
+// The redraw reaches that top row by moving the cursor up by its row *within*
+// the frame, which is the physical distance only while every frame row occupies
+// one terminal row. A terminal that rewraps on resize breaks that: once it
+// narrows, a row wider than the new width spans several terminal rows, the move
+// up lands short of the top, and the rows above where it landed survive the
+// erase. The next frame is drawn below them, so each resize leaves another copy
+// stranded on screen.
+//
+// Terminals that truncate rather than rewrap (tmux, GNU screen) keep one
+// terminal row per frame row. There the extra movement would reach above the
+// frame and erase scrollback we never drew, which costs the user real output —
+// worse than the stranded rows — so they are left alone.
+func (s *cursedRenderer) skipReflowedRows(width int) {
+	if width <= 0 || width >= s.width || s.lastView == nil || s.lastView.AltScreen {
+		return
+	}
+	env := uv.Environ(s.env)
+	if env.Getenv("TMUX") != "" || env.Getenv("STY") != "" {
+		return
+	}
+	_, y := s.scr.Position()
+	if y <= 0 {
+		return
+	}
+
+	// Only the rows above the cursor matter: the erase runs from there to the
+	// bottom of the screen, so whatever the rows below it rewrapped into is
+	// cleared either way.
+	rows := strings.Split(s.lastView.Content, "\n")
+	if len(rows) > s.height {
+		// Taller frames are drawn bottom-aligned; the rows scrolled off the top
+		// are not on screen to be rewrapped.
+		rows = rows[len(rows)-s.height:]
+	}
+	var reflowed int
+	for i := 0; i < y && i < len(rows); i++ {
+		// A row filling the width exactly still occupies a single terminal row,
+		// so the last column is not what pushes it onto another one.
+		if rowWidth := ansi.StringWidth(rows[i]); rowWidth > width {
+			reflowed += (rowWidth - 1) / width
+		}
+	}
+	if reflowed > 0 {
+		// Written straight out rather than folded into the renderer's cursor
+		// position: the position is clamped to the frame height, which is
+		// exactly the bound this movement has to cross.
+		_, _ = s.scr.WriteString(ansi.CursorUp(reflowed))
+	}
 }
 
 // clearScreen implements renderer.
