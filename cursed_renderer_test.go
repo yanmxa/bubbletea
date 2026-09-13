@@ -166,10 +166,14 @@ func TestCursedRenderer_resizeSkipsReflowedRows(t *testing.T) {
 		// row takes 10 of them and leaves its last column empty, so the row
 		// covers three terminal rows where dividing its width would say two.
 		{name: "double-width cells", rule: strings.Repeat("你", 21), to: 21, want: 4},
-		// tmux truncates instead, and moving up the extra rows would erase
-		// scrollback the renderer never drew.
-		{name: "tmux", rule: strings.Repeat("-", 99), to: 60, want: 2,
+		// tmux has rewrapped pane text on resize since 1.8, so it gets the
+		// same count as any other rewrapping terminal.
+		{name: "tmux", rule: strings.Repeat("-", 99), to: 60, want: 3,
 			env: []string{"TMUX=/tmp/tmux-501/default,1,0"}},
+		// GNU screen truncates instead, and moving up the extra rows would
+		// erase scrollback the renderer never drew.
+		{name: "screen", rule: strings.Repeat("-", 99), to: 60, want: 2,
+			env: []string{"STY=12345.pts-0.host"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var output bytes.Buffer

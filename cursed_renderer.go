@@ -652,16 +652,16 @@ func (s *cursedRenderer) resize(w, h int) {
 // erase. The next frame is drawn below them, so each resize leaves another copy
 // stranded on screen.
 //
-// Terminals that truncate rather than rewrap (tmux, GNU screen) keep one
-// terminal row per frame row. There the extra movement would reach above the
-// frame and erase scrollback we never drew, which costs the user real output —
-// worse than the stranded rows — so they are left alone.
+// A terminal that truncates rather than rewraps keeps one terminal row per
+// frame row. There the extra movement would reach above the frame and erase
+// scrollback we never drew, which costs the user real output — worse than the
+// stranded rows — so GNU screen is left alone. tmux is not one of them: it has
+// reflowed pane text on resize since 1.8.
 func (s *cursedRenderer) skipReflowedRows(width int) {
 	if width <= 0 || width >= s.width || s.lastView == nil || s.lastView.AltScreen {
 		return
 	}
-	env := uv.Environ(s.env)
-	if env.Getenv("TMUX") != "" || env.Getenv("STY") != "" {
+	if uv.Environ(s.env).Getenv("STY") != "" {
 		return
 	}
 	// Only the rows above the cursor matter: the erase runs from there to the
