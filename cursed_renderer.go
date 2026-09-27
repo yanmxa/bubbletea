@@ -293,13 +293,19 @@ func (s *cursedRenderer) flush(closing bool) error {
 	s.starting = false
 
 	if frameArea != s.cellbuf.Bounds() {
-		if !view.AltScreen && frameArea.Dy() < s.cellbuf.Height() {
+		leavingAltScreen := s.lastView != nil && s.lastView.AltScreen
+		if !view.AltScreen && !leavingAltScreen && frameArea.Dy() < s.cellbuf.Height() {
 			// An inline frame is shrinking. The forced redraw below erases
 			// from the cursor's tracked row, and the renderer clamps that row
 			// to the new, smaller height once the buffer is resized — so the
 			// erase would start below the frame's top and leave the old
 			// frame's upper rows on screen. Park the cursor on the top row
 			// while the old height is still known.
+			//
+			// Not when leaving the alt screen: the terminal restores the
+			// inline cursor itself, and a park taken in alt-screen
+			// coordinates would home it to the top of the main screen, where
+			// the erase then wipes every visible row.
 			s.scr.MoveTo(0, 0)
 		}
 		s.scr.Erase() // Force a full redraw to avoid artifacts.

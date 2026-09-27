@@ -200,3 +200,42 @@ func TestCursedRenderer_resizeSkipsReflowedRows(t *testing.T) {
 		})
 	}
 }
+
+// Leaving the alternate screen restores the cursor to where the inline frame
+// left it, and the redraw erases from that frame's top. Homing the cursor
+// first — the shrinking-frame park, taken while the renderer still thinks in
+// alt-screen coordinates — made that erase start at the top of the screen and
+// wipe every visible row of the conversation above the frame.
+func TestCursedRenderer_altScreenExitDoesNotHomeTheCursor(t *testing.T) {
+	var output bytes.Buffer
+	env := []string{"TERM=xterm-256color", "TERM_PROGRAM=Apple_Terminal"}
+	r := newCursedRenderer(&output, env, 80, 24)
+
+	inline := NewView("chat line\n> \nstatus")
+	inline.Cursor = NewCursor(2, 1)
+	r.render(inline)
+	if err := r.flush(false); err != nil {
+		t.Fatalf("flush inline frame: %v", err)
+	}
+
+	modal := NewView(strings.Repeat("modal row\n", 20) + "Do you want to proceed?")
+	modal.AltScreen = true
+	r.render(modal)
+	if err := r.flush(false); err != nil {
+		t.Fatalf("flush alt-screen frame: %v", err)
+	}
+
+	output.Reset()
+	r.render(inline)
+	if err := r.flush(false); err != nil {
+		t.Fatalf("flush after leaving the alt screen: %v", err)
+	}
+	out := output.String()
+	_, after, ok := strings.Cut(out, "\x1b[?1049l")
+	if !ok {
+		t.Fatalf("no alt-screen exit in %q", out)
+	}
+	if strings.Contains(after, "\x1b[H") {
+		t.Errorf("cursor homed on the main screen after leaving the alt screen: %q", after)
+	}
+}
